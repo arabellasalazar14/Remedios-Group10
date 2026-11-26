@@ -47,6 +47,18 @@ export const fetch = async () => {
   );
 };
 
+export const findPromotionById = async (id) => {
+  const [rows] = await pool.query(
+    `SELECT ${PROMOTION_COLUMNS} FROM promotion WHERE promotion_id = ?`,
+    [id],
+  );
+  const [links] = await pool.query(
+    "SELECT product_id FROM promotion_product WHERE promotion_id = ?",
+    [id],
+  );
+  return rows.map((row) => toPromotion(row, links.map((l) => l.product_id)));
+};
+
 export const findPromotionByCode = async (code) => {
   const [rows] = await pool.query(
     `SELECT ${PROMOTION_COLUMNS} FROM promotion WHERE voucher_code = ?`,
@@ -92,6 +104,38 @@ export const insert = async (promotion) => {
   }
 };
 
+// update
+export const update = async (promotion) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(
+      "UPDATE promotion SET promotion_name= ?, discount_type= ?, discount_value= ?, voucher_code= ?, start_date= ?, end_date= ?, usage_limit= ? WHERE promotion_id= ? ",
+      [
+        promotion.name,
+        toDbType(promotion.type),
+        promotion.value,
+        promotion.code,
+        promotion.startDate,
+        promotion.endDate,
+        promotion.usageLimit || null,
+        promotion.id,
+      ],
+    );
+    await conn.query("DELETE FROM promotion_product WHERE promotion_id= ?", [
+      promotion.id,
+    ]);
+    await insertProducts(conn, promotion.id, promotion.productIds);
+    await conn.commit();
+    return result.affectedRows;
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+};
+
 // Count one use. The checks and the +1 happen in ONE statement, so two orders at the
 // same time can never go past the usage limit. Returns 1 if counted, 0 if it can't be used.
 export const incrementUsed = async (id, today) => {
@@ -100,6 +144,15 @@ export const incrementUsed = async (id, today) => {
      WHERE promotion_id = ? AND promotion_status = 'active' AND start_date <= ? AND end_date >= ?
        AND (usage_limit IS NULL OR usage_limit = 0 OR usage_count < usage_limit)`,
     [id, today, today],
+  );
+  return result.affectedRows;
+};
+
+// enable / disable
+export const updateDisabled = async (id, disabled) => {
+  const [result] = await pool.query(
+    "UPDATE promotion SET promotion_status= ? WHERE promotion_id= ? ",
+    [disabled ? "inactive" : "active", id],
   );
   return result.affectedRows;
 };

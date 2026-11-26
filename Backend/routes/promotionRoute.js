@@ -9,5 +9,7 @@ promotionRoute.get('/voucher/:code', promotionController.checkVoucher);
 promotionRoute.post('/', promotionController.createPromotion);
 promotionRoute.post('/price', promotionController.getPromoPrice);
 promotionRoute.post('/:id/use', promotionController.usePromotion);
+promotionRoute.put('/:id', promotionController.editPromotion);
+promotionRoute.patch('/:id/status', promotionController.changeStatus);
 
 export default promotionRoute;
