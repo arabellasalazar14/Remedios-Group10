@@ -156,3 +156,9 @@ export const updateDisabled = async (id, disabled) => {
   );
   return result.affectedRows;
 };
+
+// delete (promotion_product rows are removed automatically: ON DELETE CASCADE)
+export const remove = async (id) => {
+  const [result] = await pool.query("DELETE FROM promotion WHERE promotion_id= ?", [id]);
+  return result.affectedRows;
+};
