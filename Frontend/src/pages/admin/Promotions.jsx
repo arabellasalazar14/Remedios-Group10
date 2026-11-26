@@ -4,28 +4,51 @@ import { useAuth } from "../../context/AuthContext";
 import { say } from "../../utils/promotionMessages";
 import * as promotionApi from "../../api/promotionApi";
 import PromotionHeaderContainer from "../../components/PromotionHeaderContainer";
+import PromotionListContainer from "../../components/PromotionListContainer";
 import PromotionFormContainer from "../../components/PromotionFormContainer";
 import PromotionReviewModal from "../../components/PromotionReviewModal";
 import PromotionToasts from "../../components/PromotionToasts";
 
+// gets the promotions and the products (for the "Apply To" picker) from the backend
+const fetchAll = async () => {
+  const [promotions, products] = await Promise.all([
+    promotionApi.getPromotions(),
+    promotionApi.getProducts(),
+  ]);
+  return { promotions, products };
+};
+
 const Promotions = () => {
   const { auth } = useAuth();
   const ownerId = auth?.user?.id ?? 1;   // same as the leader's Inventory page
-  const [products, setProducts] = useState([]);   // for the "Apply To" picker
-  const [promotions] = useState([]);   // the list of promotions is added with 4.2.1
+  const [promotions, setPromotions] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loadError, setLoadError] = useState("");
 
   // popups
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);   // null = creating a new promotion
   const [formError, setFormError] = useState("");
   const [review, setReview] = useState(null);     // the promotion waiting for "Confirm and save"
   const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
-    promotionApi
-      .getProducts()
-      .then(setProducts)
-      .catch((e) => console.log(e.message));
+    fetchAll()
+      .then((data) => {
+        setPromotions(data.promotions);
+        setProducts(data.products);
+      })
+      .catch((e) => {
+        console.log(e.message);
+        setLoadError(say("loadFailed"));
+      });
   }, []);
+
+  const refresh = async () => {
+    const data = await fetchAll();
+    setPromotions(data.promotions);
+    setProducts(data.products);
+  };
 
   /* ---------- Small message that fades out by itself ---------- */
   const showToast = (text) => {
@@ -36,35 +59,61 @@ const Promotions = () => {
   };
 
   /* ---------- Create / Edit ---------- */
-  const openForm = () => {
+  const openForm = (promotion) => {
+    setEditing(promotion);
     setFormError("");
     setFormOpen(true);
   };
 
   const closeForm = () => {
     setFormOpen(false);
+    setEditing(null);
     setFormError("");
     setReview(null);
   };
 
   const save = async (data) => {
     try {
-      await promotionApi.createPromotion({ ...data, ownerId });
+      if (editing) await promotionApi.updatePromotion(editing.id, data);
+      else await promotionApi.createPromotion({ ...data, ownerId });
     } catch (e) {
       setReview(null);          // back to the form, showing what the backend said
       setFormError(e.message);
       return;
     }
     closeForm();
+    await refresh().catch((e) => console.log(e.message));
     showToast(say("saved"));
   };
 
+  /* ---------- Disable / Enable ---------- */
+  const toggle = async (p) => {
+    try {
+      await promotionApi.setDisabled(p.id, !p.disabled);
+      await refresh();
+      showToast(say(p.disabled ? "enabled" : "disabled"));
+    } catch (e) {
+      showToast(e.message);
+    }
+  };
+
+  const list = promotions;   // search and filters are added with 4.2.3
+
+  const listProps = { products, onEdit: openForm, onToggle: toggle };
+
   return (
     <div className="promo-page">
-      <PromotionHeaderContainer onCreate={() => openForm()} />
+      <PromotionHeaderContainer onCreate={() => openForm(null)} />
+      {loadError && <p className="error">{loadError}</p>}
+
+      <div id="lists">
+        <PromotionListContainer title="Product discounts" what="whatDiscounts" data={list.filter((p) => !p.code)} {...listProps} />
+        <PromotionListContainer title="Voucher codes" what="whatVouchers" data={list.filter((p) => p.code)} {...listProps} />
+      </div>
 
       {formOpen && (
         <PromotionFormContainer
+          editing={editing}
           products={products}
           promotions={promotions}
           error={formError}
@@ -78,7 +127,7 @@ const Promotions = () => {
           data={review}
           products={products}
           promotions={promotions}
-          editingId={null}
+          editingId={editing ? editing.id : null}
           onBack={() => setReview(null)}
           onConfirm={save}
         />
