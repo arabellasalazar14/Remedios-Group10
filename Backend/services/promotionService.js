@@ -2,12 +2,31 @@ import * as promotionModel from "../models/promotionModel.js";
 import ValidationError from "../utils/ValidationError.js";
 
 /* ---------- Small helpers ---------- */
+const pad = (n) => String(n).padStart(2, "0");
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 const peso = (n) =>
   "₱" +
   Number(n).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Does promotion p apply to this product? Vouchers (with a code) work on any item.
+export const appliesTo = (p, product) =>
+  Boolean(p.code) || p.applyTo === "ALL" || p.productIds.includes(product.id);
+
+// Status is worked out from the dates, usage and the Disable switch
+export const statusOf = (p) => {
+  if (p.disabled) return "Disabled";
+  if (today() > p.endDate || (p.usageLimit > 0 && p.used >= p.usageLimit))
+    return "Expired";
+  if (today() < p.startDate) return "Scheduled";
+  return "Active";
+};
 
 /* ---------- Validation (throws ValidationError, like userService) ---------- */
 export const validatePromotion = (d, products) => {
@@ -90,6 +109,13 @@ const checkProductsExist = (d, products) => {
   if (d.productIds.some((id) => !known.has(id)))
     throw new ValidationError("One of the chosen products no longer exists.");
 };
+
+/* ---------- Retrieve ---------- */
+export const fetchAllPromotions = async () => {
+  const promotions = await promotionModel.fetch();
+  return promotions.map((p) => ({ ...p, status: statusOf(p) }));
+};
+
 export const fetchAllProducts = async () => {
   const products = await promotionModel.fetchProducts();
   return products;
@@ -115,4 +141,84 @@ export const createPromotion = async (body) => {
       );
     throw e;
   }
+};
+
+/* ---------- Pricing (BRD ReqID 21 and 22) ----------
+   Used by the Orders / Shop part of the system.
+   Applies the single best active discount (no stacking). A voucher needs the
+   matching code. A percentage voucher takes % off the item total; a fixed
+   voucher comes off once. */
+export const computePromoPrice = (product, promotions, qty, code) => {
+  const full = product.price * qty;
+  const typed = String(code ?? "").toUpperCase();
+  let best = 0;
+  let applied = null;
+
+  promotions.forEach((p) => {
+    if (statusOf(p) !== "Active" || !appliesTo(p, product)) return;
+    if (p.code && p.code !== typed) return; // vouchers need the matching code
+    const off = Math.min(
+      full,
+      p.type === "percent"
+        ? (full * p.value) / 100
+        : p.value * (p.code ? 1 : qty),
+    );
+    if (off > best) {
+      best = off;
+      applied = p;
+    }
+  });
+
+  const total = round2(full - best);
+  return {
+    unitPrice: qty > 0 ? round2(total / qty) : product.price,
+    total,
+    discount: round2(best),
+    promo: applied,
+  };
+};
+
+export const getPromoPrice = async (productId, qty, code) => {
+  const quantity = Number(qty);
+  if (!Number.isInteger(quantity) || quantity <= 0)
+    throw new ValidationError("Quantity must be a whole number above 0.");
+
+  const products = await promotionModel.fetchProducts();
+  const product = products.find((p) => p.id === Number(productId));
+  if (!product) throw new ValidationError("Product does not exist!", 404);
+
+  const promotions = await promotionModel.fetch();
+  return computePromoPrice(product, promotions, quantity, code);
+};
+
+// Called by the Orders part when an order is confirmed: counts one use of the promotion.
+// It only works while the promotion is Active and the usage limit is not reached yet.
+export const usePromotion = async (id) => {
+  const existing = await promotionModel.findPromotionById(id);
+  if (existing.length === 0)
+    throw new ValidationError("Promotion does not exist!", 404);
+
+  const counted = await promotionModel.incrementUsed(id, today());
+  const [latest] = await promotionModel.findPromotionById(id);
+  if (counted === 0)
+    throw new ValidationError(
+      `This promotion can't be used (${statusOf(latest).toLowerCase()}).`,
+      409,
+    );
+
+  return { used: latest.used };
+};
+
+// Checks a typed voucher code. reason: "empty", "notfound", "disabled", "scheduled" or "expired"
+export const checkVoucher = async (code) => {
+  const typed = String(code ?? "").trim().toUpperCase();
+  if (!typed) return { ok: false, promo: null, reason: "empty" };
+
+  const found = await promotionModel.findPromotionByCode(typed);
+  if (found.length === 0) return { ok: false, promo: null, reason: "notfound" };
+
+  const status = statusOf(found[0]);
+  return status === "Active"
+    ? { ok: true, promo: found[0], reason: "" }
+    : { ok: false, promo: found[0], reason: status.toLowerCase() };
 };
