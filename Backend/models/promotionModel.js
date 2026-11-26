@@ -9,7 +9,10 @@ const toDbType = (type) => (type === "percent" ? "percentage" : "fixed");
 const PROMOTION_COLUMNS = `
   promotion_id AS id, promotion_name AS name,
   IF(EXISTS(SELECT 1 FROM promotion_product pp WHERE pp.promotion_id = promotion.promotion_id), 'SELECTED', 'ALL') AS applyTo,
-  IF(discount_type = 'percentage', 'percent', 'fixed') AS type, discount_value AS value, voucher_code AS code`;
+  IF(discount_type = 'percentage', 'percent', 'fixed') AS type, discount_value AS value, voucher_code AS code,
+  DATE_FORMAT(start_date, '%Y-%m-%d') AS startDate,
+  DATE_FORMAT(end_date, '%Y-%m-%d') AS endDate,
+  COALESCE(usage_limit, 0) AS usageLimit`;
 
 // MySQL gives DECIMAL as text and TINYINT as 0/1, so clean them up here
 const toPromotion = (row, productIds) => ({
@@ -48,13 +51,16 @@ export const insert = async (promotion) => {
   try {
     await conn.beginTransaction();
     const [result] = await conn.query(
-      "INSERT INTO promotion(owner_id, promotion_name, discount_type, discount_value, voucher_code) VALUES (?,?,?,?,?)",
+      "INSERT INTO promotion(owner_id, promotion_name, discount_type, discount_value, voucher_code, start_date, end_date, usage_limit) VALUES (?,?,?,?,?,?,?,?)",
       [
         promotion.ownerId,
         promotion.name,
         toDbType(promotion.type),
         promotion.value,
         promotion.code,
+        promotion.startDate,
+        promotion.endDate,
+        promotion.usageLimit || null,
       ],
     );
     await insertProducts(conn, result.insertId, promotion.productIds);
