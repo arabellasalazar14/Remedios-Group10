@@ -1,0 +1,19 @@
+// All calls to the Promotions backend live here.
+import { API_BASE } from "../constants/api";
+const BASE = `${API_BASE}/promotion`;
+
+// Throws an Error with the backend's message (e.g. "Voucher code already exists") so the page can show it
+const request = async (path, options = {}) => {
+  const response = await fetch(BASE + path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Something went wrong");
+  }
+  return data;
+};
+
+export const createPromotion = (promotion) =>
+  request("/", { method: "POST", body: JSON.stringify(promotion) });
