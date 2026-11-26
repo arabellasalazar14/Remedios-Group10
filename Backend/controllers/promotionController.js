@@ -75,6 +75,23 @@ export const changeStatus = async (req, res) => {
   }
 };
 
+// Delete
+export const deletePromotion = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const deletedPromotion = await promotionService.deletePromotion(
+      parseInt(id),
+    );
+    res.status(200).json({
+      success: true,
+      message: deletedPromotion,
+    });
+  } catch (e) {
+    sendError(res, e);
+  }
+};
+
 // Price after promotion (for the Orders / Shop pages)
 export const getPromoPrice = async (req, res) => {
   const { productId, qty, code } = req.body;

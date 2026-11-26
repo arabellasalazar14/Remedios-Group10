@@ -23,3 +23,4 @@ export const updatePromotion = (id, promotion) =>
   request("/" + id, { method: "PUT", body: JSON.stringify(promotion) });
 export const setDisabled = (id, disabled) =>
   request("/" + id + "/status", { method: "PATCH", body: JSON.stringify({ disabled }) });
+export const deletePromotion = (id) => request("/" + id, { method: "DELETE" });

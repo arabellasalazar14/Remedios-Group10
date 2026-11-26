@@ -11,5 +11,6 @@ promotionRoute.post('/price', promotionController.getPromoPrice);
 promotionRoute.post('/:id/use', promotionController.usePromotion);
 promotionRoute.put('/:id', promotionController.editPromotion);
 promotionRoute.patch('/:id/status', promotionController.changeStatus);
+promotionRoute.delete('/:id', promotionController.deletePromotion);
 
 export default promotionRoute;
